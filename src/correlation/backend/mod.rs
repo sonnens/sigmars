@@ -121,3 +121,6 @@ impl CorrelationStore for CorrelationStoreNOP {
 
 #[cfg(feature = "tsink")]
 pub mod tsink;
+
+#[cfg(feature = "redis")]
+pub mod redis;
