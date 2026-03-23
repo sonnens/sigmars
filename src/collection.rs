@@ -1,13 +1,15 @@
 use crate::detection::filter::Filter;
 use crate::event::{Event, RefEvent};
 
+use anyhow::Result;
+
 #[cfg(feature = "correlation")]
 use crate::correlation;
 
 use log::warn;
-use petgraph::{graph, Directed, Graph};
-use serde::Deserialize;
-use std::{collections::HashMap, str::FromStr};
+use petgraph::{Directed, Graph, graph};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::rule::{RuleType, SigmaRule};
@@ -86,25 +88,33 @@ impl SigmaCollection {
         &mut self,
         path: &str,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
-        let newrules: Vec<SigmaRule> = glob::glob(format!("{}/**/*.yml", path).as_str())?
+        let rules = glob::glob(format!("{}/**/*.yml", path).as_str())?
             .into_iter()
+            .chain(glob::glob(format!("{}/**/*.yaml", path).as_str())?.into_iter())
             .flatten()
             .filter_map(|entry| {
                 std::fs::read_to_string(&entry)
                     .ok()
                     .and_then(move |s| Some((entry.to_str().unwrap_or_default().to_owned(), s)))
             })
-            .filter_map(|(fname, s)| {
-                s.parse::<SigmaCollection>()
-                    .map(|r| Into::<Vec<SigmaRule>>::into(r))
-                    .inspect_err(|_| warn!("Error parsing rule: {}, skipping", fname))
-                    .ok()
+            .map(|(fname, s)| {
+                s.split("---")
+                    .map(|part| (fname.clone(), part.to_string()))
+                    .collect::<Vec<_>>()
             })
             .flatten()
-            .collect();
+            .filter_map(|(fname, s)| {
+                serde_yaml::from_str::<SigmaRule>(&s)
+                    .map_err(|e| {
+                        warn!("Error parsing rule: {}, skipping: {}", fname, e);
+                        e
+                    })
+                    .ok()
+            })
+            .collect::<Vec<_>>();
 
-        let count = newrules.len() as u32;
-        newrules.into_iter().for_each(|rule| {
+        let count = rules.len() as u32;
+        rules.into_iter().for_each(|rule| {
             self.filters.add(&rule);
             self.insert(rule);
         });
@@ -287,7 +297,7 @@ impl SigmaCollection {
     }
 }
 
-#[cfg(feature = "correlation")]
+#[cfg(all(feature = "correlation", feature = "tsink"))]
 impl SigmaCollection {
     /// Initialize a `SigmaCollection` correlation rule backend
     /// ``` rust
@@ -296,7 +306,7 @@ impl SigmaCollection {
     /// # use sigmars::event::{Event, LogSource};
     /// # use sigmars::SigmaCollection;
     /// # use sigmars::correlation::Backend;
-    /// # use sigmars::correlation::state::mem::MemBackend;
+    /// # use sigmars::correlation::backend::tsink::TSinkStore;
     /// # static RULES: &str = r#"
     /// # title: test rule
     /// # id: test-rule
@@ -310,66 +320,23 @@ impl SigmaCollection {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn Error>> {
     /// let mut rules: SigmaCollection = RULES.parse()?;
-    /// let mut backend = MemBackend::new().await;
-    /// rules.init(&mut backend).await;
     /// # Ok(())
     /// # }
     ///
-    pub async fn init(&mut self, backend: &mut impl correlation::Backend) {
-        for rule in self.rules.values_mut() {
-            if let RuleType::Correlation(ref mut corr) = rule.rule {
-                backend.register(corr).await.unwrap();
+    pub fn with_backend(&mut self) -> Result<()> {
+        for rule in self.rules.values() {
+            if let RuleType::Correlation(ref corr) = rule.rule {
+                let engine = correlation::engine::CorrelationEngine::new(&corr);
+                corr.inner.set_engine(Box::new(engine?))?;
             }
         }
+        Ok(())
     }
+}
 
-    /// apply Sigma rules to an [`Event`], returning a list of rule IDs
-    /// similar to [`get_detection_matches`], but also evaluates correlation
-    /// rules
-    ///
-    /// Correlation rules are evaluated after detection rules
-    /// in dependency order
-    ///
-    /// [`get_detection_matches`]: #method.get_detection_matches
-    /// [`Event`]: event/struct.Event.html
-    pub async fn get_matches(
-        &self,
-        event: &Event,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        self.get_matches_from_ref(&event.into()).await
-    }
-
-    pub async fn get_matches_from_ref<'r>(
-        &self,
-        event: &RefEvent<'r>,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+impl SigmaCollection {
+    pub fn matches(&self, event: &RefEvent) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let mut prior = self.get_detection_matches_from_ref(&event);
-        self.push_correlation_matches(event, &mut prior).await?;
-        Ok(prior)
-    }
-
-    /// apply all Sigma rules to an event, returning a list of rule IDs
-    /// similar to [`get_detection_matches_unfiltered`], but also evaluates correlation
-    /// rules
-    ///
-    /// [`get_detection_matches_unfiltered`]: #method.get_detection_matches_unfiltered
-    pub async fn get_matches_unfiltered(
-        &self,
-        event: &Event,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let mut prior = self.get_detection_matches_unfiltered(event);
-        self.push_correlation_matches(&(event).into(), &mut prior)
-            .await?;
-        Ok(prior)
-    }
-
-    /// apply correlation rules to an event and a list of matching detection rule IDs
-    /// correlation rule ID's are appended to the list of prior matches
-    pub async fn push_correlation_matches<'r>(
-        &self,
-        event: &RefEvent<'r>,
-        prior: &mut Vec<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
         let rules = self
             .deps
             .sorted
@@ -388,12 +355,12 @@ impl SigmaCollection {
 
         for rule in rules {
             if let RuleType::Correlation(ref correlation) = rule.rule {
-                if correlation.is_match(&event, prior).await? {
+                if correlation.matches(&event, &prior)? {
                     prior.push(rule.id.clone());
                 }
             }
         }
-        Ok(())
+        Ok(prior)
     }
 }
 
@@ -414,7 +381,7 @@ impl Into<Vec<SigmaRule>> for SigmaCollection {
     }
 }
 
-impl FromStr for SigmaCollection {
+impl std::str::FromStr for SigmaCollection {
     type Err = Box<dyn std::error::Error>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -432,5 +399,15 @@ impl ToString for SigmaCollection {
             .filter_map(|rule| serde_yaml::to_string(rule).ok())
             .collect::<Vec<String>>()
             .join("---\n")
+    }
+}
+
+impl Serialize for SigmaCollection {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let rules: Vec<&SigmaRule> = self.rules.values().collect();
+        rules.serialize(serializer)
     }
 }

@@ -1,23 +1,23 @@
-use super::state;
-use serde::{de, Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
+use serde::{Deserializer, Serializer, de};
 use std::collections::HashMap;
-use std::fmt;
-use std::sync::OnceLock;
-use tokio::time::Duration;
+use std::{fmt, sync::OnceLock, time::Duration};
 
-#[derive(Debug, Serialize, Deserialize)]
+use super::engine::CorrelationEngine;
+use anyhow::Result;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum Condition {
-    Gt(i64),
-    Gte(i64),
-    Lt(i64),
-    Lte(i64),
-    Eq(i64),
+    Gt(u64),
+    Gte(u64),
+    Lt(u64),
+    Lte(u64),
+    Eq(u64),
 }
 
 impl Condition {
-    pub(super) fn is_match(&self, value: i64) -> bool {
+    pub fn matches(&self, value: u64) -> bool {
         match self {
             Condition::Gt(n) => value > *n,
             Condition::Gte(n) => value >= *n,
@@ -28,32 +28,32 @@ impl Condition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum ConditionOrList {
     Condition(Condition),
     List(Vec<Condition>),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EventCount {
     #[serde(with = "serde_yaml::with::singleton_map_recursive")]
     pub condition: ConditionOrList,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ValueCondition {
     #[serde(with = "serde_yaml::with::singleton_map_recursive", flatten)]
     pub condition: Condition,
     pub field: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ValueCount {
     pub condition: ValueCondition,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CorrelationType {
     EventCount(EventCount),
@@ -73,11 +73,33 @@ pub struct Correlation {
     pub(super) group_by: Vec<String>,
     #[serde(skip)]
     pub(crate) id: String,
+
     #[serde(skip)]
-    pub(super) state: OnceLock<Box<dyn state::RuleState>>,
+    pub(super) state: OnceLock<Box<CorrelationEngine>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl Correlation {
+    pub fn set_engine(&self, engine: Box<CorrelationEngine>) -> Result<()> {
+        let engine = Box::new(*engine);
+        self.state
+            .set(engine)
+            .map_err(|_| anyhow::anyhow!("state already initialized"))
+    }
+}
+impl Clone for Correlation {
+    fn clone(&self) -> Self {
+        Self {
+            correlation_type: self.correlation_type.clone(),
+            rules: self.rules.clone(),
+            timespan: self.timespan,
+            group_by: self.group_by.clone(),
+            id: self.id.clone(),
+            state: OnceLock::new(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CorrelationRule {
     #[serde(rename = "correlation")]
     pub(crate) inner: Correlation,
@@ -90,7 +112,7 @@ impl<'de> Deserialize<'de> for Correlation {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Debug)]
         #[serde(rename_all = "kebab-case")]
         pub struct CorrelationHelper {
             #[serde(flatten)]
@@ -104,12 +126,11 @@ impl<'de> Deserialize<'de> for Correlation {
         }
 
         let rule = CorrelationHelper::deserialize(deserializer)?;
-        let timespan = rule.timespan;
 
         Ok(Correlation {
             correlation_type: rule.correlation_type,
             rules: rule.rules,
-            timespan,
+            timespan: rule.timespan,
             group_by: rule.group_by,
             id: rule.id,
             state: OnceLock::new(),

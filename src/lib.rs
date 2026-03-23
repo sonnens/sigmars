@@ -19,12 +19,5 @@ pub use collection::SigmaCollection;
 pub use event::Event;
 pub use rule::SigmaRule;
 
-#[cfg(feature = "mem_backend")]
-pub use correlation::state::mem::MemBackend;
-#[cfg(feature = "correlation")]
-pub use correlation::Backend;
-#[cfg(feature = "correlation")]
-pub use correlation::RuleState;
-
 #[cfg(test)]
 mod tests;
