@@ -177,9 +177,10 @@ impl SigmaCollection {
             .filter(&event.logsource)
             .iter()
             .filter_map(|id| self.rules.get(id))
+            .filter(|rule| rule.is_enabled())
             .filter(|rule| {
                 if let RuleType::Detection(ref d) = rule.rule {
-                    d.is_match(&event.data)
+                    d.is_match(&event.data, Some(event.metadata))
                 } else {
                     false
                 }
@@ -230,7 +231,7 @@ impl SigmaCollection {
             .values()
             .filter(|rule| {
                 if let RuleType::Detection(ref d) = rule.rule {
-                    d.is_match(&event.data)
+                    d.is_match(&event.data, Some(&event.metadata))
                 } else {
                     false
                 }

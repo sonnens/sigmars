@@ -66,7 +66,9 @@ pub struct SigmaRule {
     #[serde(flatten)]
     pub(crate) rule: RuleType,
     #[doc(hidden)]
-    pub enabled: AtomicBool,
+    pub disabled: AtomicBool,
+    pub riskscore: Option<u32>,
+    pub notificationnames: Option<Vec<String>>,
     #[doc(hidden)]
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -74,15 +76,15 @@ pub struct SigmaRule {
 
 impl SigmaRule {
     pub fn is_enabled(&self) -> bool {
-        self.enabled.load(std::sync::atomic::Ordering::Relaxed)
+        !self.disabled.load(std::sync::atomic::Ordering::Relaxed)
     }
     pub fn enable(&self) {
-        self.enabled
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.disabled
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
     pub fn disable(&self) {
-        self.enabled
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.disabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -201,7 +203,9 @@ impl<'de> Visitor<'de> for SigmaRuleVisitor {
             pub level: Option<String>,
             #[serde(flatten)]
             pub rule: RuleType,
-            pub enabled: Option<bool>,
+            pub riskscore: Option<u32>,
+            pub notificationnames: Option<Vec<String>>,
+            pub disabled: Option<bool>,
             #[serde(flatten)]
             pub extra: HashMap<String, serde_json::Value>,
         }
@@ -230,7 +234,9 @@ impl<'de> Visitor<'de> for SigmaRuleVisitor {
             falsepositives: helper.falsepositives,
             level: helper.level,
             rule: helper.rule,
-            enabled: AtomicBool::new(helper.enabled.unwrap_or(true)),
+            disabled: AtomicBool::new(helper.disabled.unwrap_or(false)),
+            riskscore: helper.riskscore,
+            notificationnames: helper.notificationnames,
             extra: helper.extra,
         })
     }

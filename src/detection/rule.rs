@@ -1,6 +1,7 @@
 use serde::{self, Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml;
+use std::collections::HashMap;
 
 use super::detection::Detection;
 use crate::event::LogSource;
@@ -25,8 +26,8 @@ pub struct DetectionRule {
 }
 
 impl DetectionRule {
-    pub fn is_match(&self, data: &Value) -> bool {
-        self.compiled.is_match(data)
+    pub fn is_match(&self, data: &Value, metadata: Option<&HashMap<String, Value>>) -> bool {
+        self.compiled.is_match(data, metadata)
     }
 }
 
@@ -41,10 +42,9 @@ impl<'de> Deserialize<'de> for DetectionRule {
             taxonomy: Option<String>,
             detection: serde_yaml::Value,
         }
-        // Deserialize the detection rule from the deserializer
+
         let rule = RuleHelper::deserialize(deserializer)?;
 
-        // Compile the detection criteria
         let compiled = Detection::new(&rule.detection).map_err(serde::de::Error::custom)?;
 
         let taxonomy = match rule.taxonomy {

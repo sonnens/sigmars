@@ -1,4 +1,5 @@
 use crate::detection::detection::Detection;
+use std::collections::HashMap;
 
 #[test]
 fn test_detection() {
@@ -15,7 +16,7 @@ fn test_detection() {
         "foo": "bar"
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -33,7 +34,7 @@ fn test_detection_fail() {
         "foo": "baz"
     });
 
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -53,7 +54,7 @@ fn test_detection_nested() {
         }
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -73,7 +74,7 @@ fn test_detection_list() {
         "foo": "bar"
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -92,14 +93,14 @@ fn test_detection_map_is_and() {
         "foo": "bar"
     });
 
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 
     let log = serde_json::json!({
         "foo": "bar",
         "baz": "quux"
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -117,7 +118,7 @@ fn test_modifiers() {
         "foo": "barbaz"
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -141,7 +142,7 @@ fn test_wildcards() {
         "baz": "foobarbaz"
     });
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -176,7 +177,7 @@ fn test_fieldref() {
             "quux": "abc"
         }
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -193,12 +194,12 @@ fn test_cidr() {
     let log = serde_json::json!({
         "foo": "10.0.1.2"
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let log = serde_json::json!({
         "foo": "10.1.2.3"
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -215,12 +216,12 @@ fn test_cidr_to_cidr() {
     let log = serde_json::json!({
         "foo": "10.0.1.0/24"
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let log = serde_json::json!({
         "foo": "10.1.0.0/24"
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -239,17 +240,17 @@ fn test_all() {
     let log = serde_json::json!({
         "foo": ["bar", "baz"]
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let log = serde_json::json!({
         "foo": ["bar", "quux"]
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 
     let log = serde_json::json!({
         "foo": ["bar"]
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -270,20 +271,20 @@ fn test_all_map_implicit() {
         "bar": "test2",
         "baz": "test3"
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let log = serde_json::json!({
         "foo": "test1",
         "bar": "test2",
         "baz": "test4"
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 
     let log = serde_json::json!({
         "foo": "test1",
         "bar": "test2"
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -303,7 +304,7 @@ fn test_numbers() {
         "foo": 42,
         "bar": 4.2
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -320,7 +321,7 @@ fn test_gt() {
     let log = serde_json::json!({
         "foo": 56
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -337,7 +338,7 @@ fn test_regex() {
     let log = serde_json::json!({
         "foo": "bar"
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -354,7 +355,7 @@ fn test_regex_is_case_sensitive() {
     let log = serde_json::json!({
         "foo": "BAR"
     });
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -371,7 +372,7 @@ fn test_case_insensitive_regex() {
     let log = serde_json::json!({
         "foo": "BAR"
     });
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 }
 
 #[test]
@@ -404,7 +405,7 @@ fn test_nof() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let detection = r#"
     selection1:
@@ -419,7 +420,7 @@ fn test_nof() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 
     let detection = r#"
     selection1:
@@ -432,7 +433,7 @@ fn test_nof() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -453,7 +454,7 @@ fn test_allof() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
 
     let detection = r#"
     selection1:
@@ -466,7 +467,7 @@ fn test_allof() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), false);
+    assert_eq!(detection.is_match(&log, None), false);
 }
 
 #[test]
@@ -484,5 +485,97 @@ fn test_null() {
     let detection =
         Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
 
-    assert_eq!(detection.is_match(&log), true);
+    assert_eq!(detection.is_match(&log, None), true);
+}
+
+#[test]
+fn test_expand_numeric() {
+    let detection = r#"
+        selection:
+            upper_limit|expand: "%foo.bar%"
+        condition: selection
+        "#;
+
+    let detection =
+        Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
+
+    let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+    metadata.insert("foo".to_string(), serde_json::json!({"bar": 123}));
+
+    let log = serde_json::json!({"upper_limit": 123});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), true);
+
+    let log = serde_json::json!({"upper_limit": 456});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), false);
+
+    let log = serde_json::json!({"upper_limit": 123});
+    assert_eq!(detection.is_match(&log, None), false); // no metadata → false
+}
+
+#[test]
+fn test_expand_string() {
+    let detection = r#"
+        selection:
+            field|expand: "%key%"
+        condition: selection
+        "#;
+
+    let detection =
+        Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
+
+    let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+    metadata.insert("key".to_string(), serde_json::json!("hello"));
+
+    let log = serde_json::json!({"field": "hello"});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), true);
+
+    let log = serde_json::json!({"field": "world"});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), false);
+}
+
+#[test]
+fn test_expand_with_modifier_gt() {
+    // logins|expand|gt: %max_logins% and logins|gt|expand: %max_logins% are equivalent
+    for rule in [
+        "selection:\n  logins|expand|gt: \"%max_logins%\"\ncondition: selection",
+        "selection:\n  logins|gt|expand: \"%max_logins%\"\ncondition: selection",
+    ] {
+        let detection =
+            Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(rule).unwrap()).unwrap();
+
+        let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+        metadata.insert("max_logins".to_string(), serde_json::json!(5));
+
+        let log = serde_json::json!({"logins": 10});
+        assert_eq!(detection.is_match(&log, Some(&metadata)), true, "rule: {rule}");
+
+        let log = serde_json::json!({"logins": 3});
+        assert_eq!(detection.is_match(&log, Some(&metadata)), false, "rule: {rule}");
+
+        // no metadata → false
+        let log = serde_json::json!({"logins": 10});
+        assert_eq!(detection.is_match(&log, None), false, "rule: {rule}");
+    }
+}
+
+#[test]
+fn test_expand_literal_escape() {
+    // \%literal%suffix% → the string "%literal" + value of "suffix" placeholder
+    let detection = r#"
+        selection:
+            field|expand: '\%literal%suffix%'
+        condition: selection
+        "#;
+
+    let detection =
+        Detection::new(&serde_yaml::from_str::<serde_yaml::Value>(detection).unwrap()).unwrap();
+
+    let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+    metadata.insert("suffix".to_string(), serde_json::json!("world"));
+
+    let log = serde_json::json!({"field": "%literalworld"});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), true);
+
+    let log = serde_json::json!({"field": "literalworld"});
+    assert_eq!(detection.is_match(&log, Some(&metadata)), false);
 }

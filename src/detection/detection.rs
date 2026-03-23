@@ -1,5 +1,6 @@
 use super::condition::Condition;
 use super::selection;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -47,11 +48,15 @@ impl Detection {
     /// # Returns
     ///
     /// Returns `true` if the log event matches the detection criteria, otherwise `false`.
-    pub fn is_match(&self, data: &serde_json::Value) -> bool {
+    pub fn is_match(
+        &self,
+        data: &serde_json::Value,
+        metadata: Option<&HashMap<String, JsonValue>>,
+    ) -> bool {
         let results = self
             .selections
             .iter()
-            .map(|(key, selection)| (key, selection.is_match(data)))
+            .map(|(key, selection)| (key, selection.is_match(data, metadata)))
             .collect::<HashMap<&String, bool>>();
         self.condition.is_match(&results)
     }
